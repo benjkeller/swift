@@ -21,15 +21,20 @@ from time import sleep, time
 from collections import defaultdict
 import unittest
 from nose import SkipTest
+from datetime import timedelta
+from eventlet import Timeout
+from time import sleep
 
 from six.moves.http_client import HTTPConnection
 
 from swiftclient import get_auth, head_account
 from swift.obj.diskfile import get_data_dir
+from swift.common import internal_client
 from swift.common.ring import Ring
-from swift.common.utils import readconf, renamer
+from swift.common.utils import readconf, renamer, PivotTree
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
+from swift.common.wsgi import ConfigString
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -253,6 +258,88 @@ def get_policy(**kwargs):
         if matches:
             return policy
     raise SkipTest('No policy matching %s' % kwargs)
+
+def get_pivot_tree(client, account, container):
+    path = swift.make_path(account, container) + '?nodes=pivot&format=json'
+    try:
+        resp = client.make_request('GET', path, headers, (2,))
+        tree = PivotTree()
+        for pivot in json.loads(resp.body):
+            tree.add(pivot['name'])
+    except Exception:
+        tree = None
+
+    return tree
+
+def shard_if_needed(account, container,
+                    timeout=timedelta(minutes=5),
+                    interval=timedelta(seconds=5),
+                    **kwargs):
+    """
+    With the given information, shard a container only if sharding is enabled
+    :param account: the account containing the container
+    :param container: the container to shard
+    :param timeout: the total amount of time to allow for sharding
+    :param interval: the amount of time to wait before each check pass and shard
+    :param kwargs: passed to container sharder
+
+    """
+    if 'SHARDING_ENABLED' not in globals() or SHARDING_ENABLED != True:
+        return
+
+    swift = internal_client.InternalClient(ConfigString("""
+        [DEFAULT]
+        swift_dir = /etc/swift
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        """.lstrip()), 'test', 1)
+
+    sharder = ContainerSharder(**kwargs)
+    shard_size = sharder.shard_container_size
+
+    path = swift.make_path(account, container)
+    resp = swift.make_request('POST', path, {'X-Container-Sharding': 'On'},
+                              acceptable_statuses=(2,))
+    resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
+    total_object_count = json.loads(resp.headers)['X-Container-Object-Count']
+
+    with Timeout(timeout.total_seconds()):
+        while(True):
+            sharder.run_once()
+            sleep(interval.total_seconds())
+
+            pivot_tree = _get_pivot_tree(swift, account, container)
+
+            # get all the sharded container accounts and container names
+            shard_containers = []
+            for leaf in pivot_tree.leaves_iter():
+                le = pivot_to_pivot_container(account, container, leaf.key, -1)
+                gt = pivot_to_pivot_container(account, container, leaf.key, 1)
+                shard_containers.append(le)
+                shard_containers.append(gt)
+
+            # get the container info of each sharded container
+            listings = []
+            for container in shard_containers:
+                path = swift.make_path(container[0], container[1])
+                resp = swift.make_request('GET', path, {}, (2,))
+                headers = json.loads(resp.headers)
+                listings.append(headers['X-Container-Object-Count'])
+
+            # we are done if everything is done replicating etc
+            if all(listing <= shard_size for listing in listings):
+                if sum(listings) == total_object_count:
+                    break
 
 
 class ProbeTest(unittest.TestCase):
