@@ -28,7 +28,7 @@ from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import hash_path, readconf
 from test.probe.common import kill_nonprimary_server, \
-    kill_server, ReplProbeTest, start_server, shard_if_needed
+    kill_server, ReplProbeTest, start_server
 
 eventlet.monkey_patch(all=False, socket=True)
 
@@ -48,7 +48,7 @@ class TestContainerFailures(ReplProbeTest):
         cpart, cnodes = self.container_ring.get_nodes(self.account, container1)
         client.put_container(self.url, self.token, container1)
 
-        shard_if_needed(self.account, container1)
+        self.shard_if_needed(self.account, container1)
 
         # Kill container1 servers excepting two of the primaries
         kill_nonprimary_server(cnodes, self.ipport2server, self.pids)
@@ -90,7 +90,7 @@ class TestContainerFailures(ReplProbeTest):
         cpart, cnodes = self.container_ring.get_nodes(self.account, container1)
         client.put_container(self.url, self.token, container1)
 
-        shard_if_needed(self.account, container1)
+        self.shard_if_needed(self.account, container1)
 
         # Kill container1 servers excepting one of the primaries
         cnp_ipport = kill_nonprimary_server(cnodes, self.ipport2server,
@@ -154,7 +154,7 @@ class TestContainerFailures(ReplProbeTest):
         def run_test(num_locks, catch_503):
             container = 'container-%s' % uuid4()
             client.put_container(self.url, self.token, container)
-            shard_if_needed(self.account, container)
+            self.shard_if_needed(self.account, container)
             db_files = self._get_container_db_files(container)
             db_conns = []
             for i in range(num_locks):

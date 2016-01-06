@@ -24,6 +24,7 @@ from nose import SkipTest
 from datetime import timedelta
 from eventlet import Timeout
 from time import sleep
+import json
 
 from six.moves.http_client import HTTPConnection
 
@@ -31,10 +32,11 @@ from swiftclient import get_auth, head_account
 from swift.obj.diskfile import get_data_dir
 from swift.common import internal_client
 from swift.common.ring import Ring
-from swift.common.utils import readconf, renamer, PivotTree
+from swift.common.utils import readconf, renamer, PivotTree, pivot_to_pivot_container
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common.wsgi import ConfigString
+from swift.container.sharder import ContainerSharder
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -259,93 +261,13 @@ def get_policy(**kwargs):
             return policy
     raise SkipTest('No policy matching %s' % kwargs)
 
-def get_pivot_tree(client, account, container):
-    path = swift.make_path(account, container) + '?nodes=pivot&format=json'
-    try:
-        resp = client.make_request('GET', path, headers, (2,))
-        tree = PivotTree()
-        for pivot in json.loads(resp.body):
-            tree.add(pivot['name'])
-    except Exception:
-        tree = None
-
-    return tree
-
-def shard_if_needed(account, container,
-                    timeout=timedelta(minutes=5),
-                    interval=timedelta(seconds=5),
-                    **kwargs):
-    """
-    With the given information, shard a container only if sharding is enabled
-    :param account: the account containing the container
-    :param container: the container to shard
-    :param timeout: the total amount of time to allow for sharding
-    :param interval: the amount of time to wait before each check pass and shard
-    :param kwargs: passed to container sharder
-
-    """
-    if 'SHARDING_ENABLED' not in globals() or SHARDING_ENABLED != True:
-        return
-
-    swift = internal_client.InternalClient(ConfigString("""
-        [DEFAULT]
-        swift_dir = /etc/swift
-
-        [pipeline:main]
-        pipeline = catch_errors cache proxy-server
-
-        [app:proxy-server]
-        use = egg:swift#proxy
-
-        [filter:cache]
-        use = egg:swift#memcache
-
-        [filter:catch_errors]
-        use = egg:swift#catch_errors
-        """.lstrip()), 'test', 1)
-
-    sharder = ContainerSharder(**kwargs)
-    shard_size = sharder.shard_container_size
-
-    path = swift.make_path(account, container)
-    resp = swift.make_request('POST', path, {'X-Container-Sharding': 'On'},
-                              acceptable_statuses=(2,))
-    resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
-    total_object_count = json.loads(resp.headers)['X-Container-Object-Count']
-
-    with Timeout(timeout.total_seconds()):
-        while(True):
-            sharder.run_once()
-            sleep(interval.total_seconds())
-
-            pivot_tree = _get_pivot_tree(swift, account, container)
-
-            # get all the sharded container accounts and container names
-            shard_containers = []
-            for leaf in pivot_tree.leaves_iter():
-                le = pivot_to_pivot_container(account, container, leaf.key, -1)
-                gt = pivot_to_pivot_container(account, container, leaf.key, 1)
-                shard_containers.append(le)
-                shard_containers.append(gt)
-
-            # get the container info of each sharded container
-            listings = []
-            for container in shard_containers:
-                path = swift.make_path(container[0], container[1])
-                resp = swift.make_request('GET', path, {}, (2,))
-                headers = json.loads(resp.headers)
-                listings.append(headers['X-Container-Object-Count'])
-
-            # we are done if everything is done replicating etc
-            if all(listing <= shard_size for listing in listings):
-                if sum(listings) == total_object_count:
-                    break
 
 
 class ProbeTest(unittest.TestCase):
     """
     Don't instantiate this directly, use a child class instead.
     """
+    sharding_enabled = False
 
     def setUp(self):
         p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
@@ -393,6 +315,7 @@ class ProbeTest(unittest.TestCase):
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])
             self.updaters = Manager(['container-updater', 'object-updater'])
+            self.container_sharder = Manager(['container-sharder'])
         except BaseException:
             try:
                 raise
@@ -451,6 +374,8 @@ class ProbeTest(unittest.TestCase):
         self.updaters.once()
         self.replicators.once()
 
+        self.container_sharder.stop()
+
     def kill_drive(self, device):
         if os.path.ismount(device):
             os.system('sudo umount %s' % device)
@@ -463,6 +388,110 @@ class ProbeTest(unittest.TestCase):
             renamer(device + "X", device)
         else:
             os.system('sudo mount %s' % device)
+
+
+    def _get_pivot_tree(self, client, account, container):
+        if not self.sharding_enabled:
+            return
+
+        path = client.make_path(account, container) + '?nodes=pivot&format=json'
+        try:
+            resp = client.make_request('GET', path, {}, (2,))
+            tree = PivotTree()
+            for pivot in json.loads(resp.body):
+                tree.add(pivot['name'])
+        except Exception:
+            tree = None
+    
+        return tree
+    
+    def shard_if_needed(self, account, container,
+                        timeout=timedelta(minutes=2),
+                        interval=timedelta(seconds=5),
+                        **kwargs):
+        """
+        With the given information, shard a container only if sharding enabled
+        :param account: the account containing the container
+        :param container: the container to shard
+        :param timeout: the total amount of time to allow for sharding
+        :param interval: the amount of time to wait before attempting a shard
+        :param kwargs: passed directly to container sharder
+    
+        """
+        print "\n\n\n\n\n SHARD \n\n\n\n\n\n\n"
+        if not self.sharding_enabled:
+            return
+   
+        print "\n\n\n\n\nSHARDING ENABLED\n\n\n\n\n\n"
+
+        config_string = '\n'.join(line.strip() for line in """
+            [DEFAULT]
+            swift_dir = /etc/swift
+    
+            [pipeline:main]
+            pipeline = catch_errors cache proxy-server
+    
+            [app:proxy-server]
+            use = egg:swift#proxy
+    
+            [filter:cache]
+            use = egg:swift#memcache
+    
+            [filter:catch_errors]
+            use = egg:swift#catch_errors
+            """.split('\n'))
+
+        swift = internal_client.InternalClient(ConfigString(config_string),
+                                               'test', 1)
+        #sharder = ContainerSharder(kwargs)
+        shard_size = ContainerSharder({}).shard_container_size
+        shard_size = 100
+        print shard_size, '\n\n\n\n'   
+ 
+        path = swift.make_path(account, container)
+        resp = swift.make_request('POST', path, {'X-Container-Sharding': 'On'},
+                                  acceptable_statuses=(2,))
+        resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
+        total_object_count = int(resp.headers['X-Container-Object-Count'])
+    
+        try_until = time() + timeout.total_seconds()
+        while(True):
+            self.container_sharder.start(once=True, wait=True)
+            sleep(interval.total_seconds())
+
+            pivot_tree = self._get_pivot_tree(swift, account, container)
+
+            # may not be sharded yet
+            if pivot_tree is None:
+                continue
+
+            #import pdb; pdb.set_trace()
+ 
+            # get all the sharded container accounts and container names
+            shard_containers = []
+            for leaf, weight in pivot_tree.leaves_iter():
+                shard = pivot_to_pivot_container(account, container,
+                                                 leaf.key, weight)
+                shard_containers.append(shard)
+    
+            # get the container info of each sharded container
+            listings = []
+            for shard in shard_containers:
+                path = swift.make_path(shard[0], shard[1])
+                resp = swift.make_request('GET', path, {}, (2,))
+                count = int(resp.headers['X-Container-Object-Count'])
+                listings.append(count)
+    
+            # we are done if everything is done replicating etc
+            if all(listing <= shard_size for listing in listings):
+                if sum(listings) == total_object_count:
+                    break
+
+            if time() > try_until:
+                state = dict(shard_size=shard_size,
+                             leaf_containers=shard_containers,
+                             objects_in_containers=listings)
+                raise Exception('Timeout after %s seconds. state: %s' % (timeout.total_seconds(), state))
 
 
 class ReplProbeTest(ProbeTest):
