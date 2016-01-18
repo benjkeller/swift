@@ -48,10 +48,10 @@ class TestContainerShardingOff(ReplProbeTest):
         #import pdb; pdb.set_trace()
         self.shard_if_needed(self.account, con)
         #get pivot points 
-        path = self.swift.make_path(account, container) + \
+        path = self.swift.make_path(self.account, con) + \
             '?nodes=pivot&format=json'
-        resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
-        pivot_containers = [X['name'] for x in json.loads(resp.body)]
+        resp = self.swift.make_request('GET', path, {}, acceptable_statuses=(2,))
+        pivot_containers = [x['name'] for x in json.loads(resp.body)]
         #delete objects and container
         for name in self._objects(0, 101):
             client.delete_object(self.url, self.token, con, name)
@@ -61,10 +61,10 @@ class TestContainerShardingOff(ReplProbeTest):
             for weight in (-1, 1):
                 shardaccount, shardcontainer = pivot_to_pivot_container(self.account, con , name, weight)
                 path = self.swift.make_path(shardaccount, shardcontainer)
-                resp = swift.make_request('GET', path, {}, acceptable_statuses=(3,4,5))
+                resp = self.swift.make_request('GET', path, {}, acceptable_statuses=(3,4,5))
                     
     def test_check_sharding_101(self):
-        self._check_sharding_with_objects(101)
+        self._check_sharding_with_objects(101, datetime.timedelta(minutes=2))
 
     def test_check_sharding_500(self):
         self._check_sharding_with_objects(500, datetime.timedelta(minutes=3))
