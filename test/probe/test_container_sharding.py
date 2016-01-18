@@ -15,31 +15,43 @@ class TestContainerShardingOff(ReplProbeTest):
         self.swift = InternalClient(ConfigString(ic_conf_body), 'Probe Test', 3)
 
     def test_tree_structure(self):
-        print container
-        cpart, cnodes = container_ring.get_nodes(account, container)
-        client.put_container(url, token, container)
+        container = 'container-%s' % uuid4()
+        client.put_container(self.url, self.token, container)
 
-        for name in _objects(0, 101):
-            print "  %s" % name
-            client.put_object(url, token, container, name, name)
+        for name in self._objects(0, 500): 
+            client.put_object(self.url, self.token, container, name, name)     
+        self.shard_if_needed(self.account, container)
 
-        # get all the sharded container accounts and container names
-        shard_containers = []
-        for leaf, weight in pivot_tree.leaves_iter():
-            shard = pivot_to_pivot_container(account, container,
-                     leaf.key, weight)
-            shard_containers.append(shard)
+        path = self.swift.make_path(self.account, container) + \
+            '?nodes=pivot&format=json'
+        resp = self.swift.make_request('GET', path, {}, acceptable_statuses=(2,))   
 
-            path = swift.make_path(account, container)
-            #resp = swift.make_request('POST', path, {'X-Container-Sharding': 'On'},
-            #                          acceptable_statuses=(2,))
-            resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
-            resp_account = int(resp.headers['X-Backend-Shard-Account'])
-            resp_container = int(resp.headers['X-Backend-Shard-Container'])
-            resp_pivot = int(resp.headers['X-Container-Sysmeta-Shard-Pivot'])
-            resp_obj_count = int(resp.headers['X-Container-Object-Count'])
-            print resp_account, resp_container, resp_pivot, resp_obj_count
+        tree = PivotTree()
+        pivots = {}
+        for pivot in json.loads(resp.body):                     
+            tree.add(pivot['name'])
+            pivots['name'] = pivot
 
+        def consistent_levels(node, level=0):
+            if node is None:
+                return
+            self.assertEqual(node.level, level)
+            self.assertEqual(node.level, pivots[node.key])
+            consistent_levels(node.left, level + 1) 
+            consistent_levels(node.right, level + 1)
+
+        def consistent_ordering(node): 
+            if node is None:
+                return
+            if node.left:   
+                self.assertTrue(node.key >= node.left.key)
+                consistent_ordering(node.left)
+            if node.right:
+                self.assertTrue(node.key < node.right.key)
+                consistent_ordering(node.right)
+
+        consistent_levels(tree._root)
+        consistent_ordering(tree._root)
     def test_check_deleted(self):
         con = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, con)

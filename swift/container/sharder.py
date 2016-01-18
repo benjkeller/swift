@@ -839,10 +839,8 @@ class ContainerSharder(ContainerReplicator):
         # Grab the level from the parent for later saving in pivot table
         # the root tree before we move anything.
         # and child metadata
-        tree = self.tree_cache.get('')
         level = broker.metadata.get('X-Container-Sysmeta-Shard-Level')
-        if not tree:
-            level = int(level[0]) + 1 if level else 0
+        level = int(level[0]) + 1 if level else 0
 
         # Make sure the account exists and the 2 new container entries
         # are added by running a container PUTs of the new containers.
