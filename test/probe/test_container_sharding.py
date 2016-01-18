@@ -1,17 +1,89 @@
-SHARDING_ENABLED = True
+
 
 from unittest import main
 from uuid import uuid4
 import datetime, time
-
+from swift.common.internal_client import InternalClient
 from swiftclient import client
-
-from test.probe.common import ReplProbeTest 
-
+from swift.container.sharder import ic_conf_body
+from test.probe.common import * 
+from swift.common.wsgi import ConfigString
 
 class TestContainerShardingOff(ReplProbeTest):
+    def setUp(self):
+        super(TestContainerShardingOff, self).setUp()
+        self.swift = InternalClient(ConfigString(ic_conf_body), 'Probe Test', 3)
+
+    def test_tree_structure(self):
+        print container
+        cpart, cnodes = container_ring.get_nodes(account, container)
+        client.put_container(url, token, container)
+
+        for name in _objects(0, 101):
+            print "  %s" % name
+            client.put_object(url, token, container, name, name)
+
+        # get all the sharded container accounts and container names
+        shard_containers = []
+        for leaf, weight in pivot_tree.leaves_iter():
+            shard = pivot_to_pivot_container(account, container,
+                     leaf.key, weight)
+            shard_containers.append(shard)
+
+            path = swift.make_path(account, container)
+            #resp = swift.make_request('POST', path, {'X-Container-Sharding': 'On'},
+            #                          acceptable_statuses=(2,))
+            resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
+            resp_account = int(resp.headers['X-Backend-Shard-Account'])
+            resp_container = int(resp.headers['X-Backend-Shard-Container'])
+            resp_pivot = int(resp.headers['X-Container-Sysmeta-Shard-Pivot'])
+            resp_obj_count = int(resp.headers['X-Container-Object-Count'])
+            print resp_account, resp_container, resp_pivot, resp_obj_count
+
+    def test_check_deleted(self):
+        con = 'container-%s' % uuid4()
+        client.put_container(self.url, self.token, con)
+        for name in self._objects(0, 101):
+            client.put_object(self.url, self.token, con, name, '1')
+        #import pdb; pdb.set_trace()
+        self.shard_if_needed(self.account, con)
+        #get pivot points 
+        path = self.swift.make_path(account, container) + \
+            '?nodes=pivot&format=json'
+        resp = swift.make_request('GET', path, {}, acceptable_statuses=(2,))
+        pivot_containers = [X['name'] for x in json.loads(resp.body)]
+        #delete objects and container
+        for name in self._objects(0, 101):
+            client.delete_object(self.url, self.token, con, name)
+
+        client.delete_container(self.url, self.token, con)
+        for name in pivot_containers:
+            for weight in (-1, 1):
+                shardaccount, shardcontainer = pivot_to_pivot_container(self.account, con , name, weight)
+                path = self.swift.make_path(shardaccount, shardcontainer)
+                resp = swift.make_request('GET', path, {}, acceptable_statuses=(3,4,5))
+                    
+    def test_check_sharding_101(self):
+        self._check_sharding_with_objects(101)
+
+    def test_check_sharding_500(self):
+        self._check_sharding_with_objects(500, datetime.timedelta(minutes=3))
+
+    def _check_sharding_with_objects(self, obj_count, timeout):
+        #Create container, fill with objects
+        con = 'container-%s' % uuid4()
+        client.put_container(self.url, self.token, con)
+        for name in self._objects(0, obj_count):
+            client.put_object(self.url, self.token, con, name, '1')
+        self.shard_if_needed(self.account, con, timeout=timeout)
+
+        for name in self._objects(0, obj_count):
+            client.delete_object(self.url, self.token, con, name)
+
+        client.delete_container(self.url, self.token, con)
+
     def _wait_for(self, check, error_message,
-                  timeout=datetime.timedelta(minutes=2),
+                  timeout=datetime.timedelta(minutes=3),
                   interval=datetime.timedelta(seconds=10)):
         self.get_to_final_state()
 
@@ -53,7 +125,7 @@ class TestContainerShardingOff(ReplProbeTest):
             client.put_object(self.url, self.token, container, name, name)
         self.shard_if_needed(self.account, container,
                              shard_container_size=shard_container_size)
-        import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
 
         # Delete objects
         for name in self._objects(0, 50):

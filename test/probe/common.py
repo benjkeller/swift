@@ -398,7 +398,10 @@ class ProbeTest(unittest.TestCase):
         try:
             resp = client.make_request('GET', path, {}, (2,))
             tree = PivotTree()
-            for pivot in json.loads(resp.body):
+            pivots = json.loads(resp.body)
+            if not pivots:
+                return None
+            for pivot in pivots:
                 tree.add(pivot['name'])
         except Exception:
             tree = None
@@ -406,7 +409,7 @@ class ProbeTest(unittest.TestCase):
         return tree
     
     def shard_if_needed(self, account, container,
-                        timeout=timedelta(minutes=2),
+                        timeout=timedelta(minutes=3),#bjk changed 2 to 3
                         interval=timedelta(seconds=5),
                         **kwargs):
         """
@@ -481,7 +484,6 @@ class ProbeTest(unittest.TestCase):
                 resp = swift.make_request('GET', path, {}, (2,))
                 count = int(resp.headers['X-Container-Object-Count'])
                 listings.append(count)
-    
             # we are done if everything is done replicating etc
             if all(listing <= shard_size for listing in listings):
                 if sum(listings) == total_object_count:
@@ -492,7 +494,11 @@ class ProbeTest(unittest.TestCase):
                              leaf_containers=shard_containers,
                              objects_in_containers=listings)
                 raise Exception('Timeout after %s seconds. state: %s' % (timeout.total_seconds(), state))
-
+            state = dict(shard_size=shard_size,
+                         leaf_containers=shard_containers,
+                         objects_in_containers=listings)
+            print state
+    
 
 class ReplProbeTest(ProbeTest):
 

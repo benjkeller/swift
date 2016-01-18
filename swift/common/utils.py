@@ -3712,7 +3712,7 @@ class PivotTree(object):
 
         :rtype : object
         """
-        pivot, weight = self.get(pivot)
+        pivot, weight = self.get(pivot, leaf=False)
         gt = lt = None
 
         if pivot is None or pivot.parent is None:

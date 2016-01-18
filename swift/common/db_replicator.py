@@ -450,6 +450,7 @@ class Replicator(Daemon):
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if self._in_sync(rinfo, info, broker, local_sync):
                 return True
+            
             # if the difference in rowids between the two differs by
             # more than 50%, rsync then do a remote merge.
             if rinfo['max_row'] / float(info['max_row']) < 0.55:
@@ -808,7 +809,7 @@ class ReplicatorRpc(object):
             sleep()
         # Note the following hook will need to change to using a pointer and
         # limit in the future.
-        other_items = self._other_items_hook(new_broker)
+        other_items = self._other_items_hook(existing_broker)
         if other_items:
             new_broker.merge_items(other_items)
         new_broker.newid(args[0])
