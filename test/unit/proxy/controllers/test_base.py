@@ -200,8 +200,8 @@ class TestFuncs(unittest.TestCase):
         info_a = get_info(app, env, 'a')
         # Check that you got proper info
         self.assertEqual(info_a['status'], 200)
-        self.assertEqual(info_a['bytes'], 6666)
-        self.assertEqual(info_a['total_object_count'], 1000)
+        self.assertEqual(info_a['bytes'], '6666')
+        self.assertEqual(info_a['total_object_count'], '1000')
         # Make sure the env cache is set
         self.assertEqual(env.get('swift.account/a'), info_a)
         # Make sure the app was called
@@ -211,8 +211,8 @@ class TestFuncs(unittest.TestCase):
         info_a = get_info(app, env, 'a')
         # Check that you got proper info
         self.assertEqual(info_a['status'], 200)
-        self.assertEqual(info_a['bytes'], 6666)
-        self.assertEqual(info_a['total_object_count'], 1000)
+        self.assertEqual(info_a['bytes'], '6666')
+        self.assertEqual(info_a['total_object_count'], '1000')
         # Make sure the env cache is set
         self.assertEqual(env.get('swift.account/a'), info_a)
         # Make sure the app was NOT called AGAIN
@@ -222,8 +222,8 @@ class TestFuncs(unittest.TestCase):
         info_c = get_info(app, env, 'a', 'c')
         # Check that you got proper info
         self.assertEqual(info_c['status'], 200)
-        self.assertEqual(info_c['bytes'], 6666)
-        self.assertEqual(info_c['object_count'], 1000)
+        self.assertEqual(info_c['bytes'], '6666')
+        self.assertEqual(info_c['object_count'], '1000')
         # Make sure the env cache is set
         self.assertEqual(env.get('swift.account/a'), info_a)
         self.assertEqual(env.get('swift.container/a/c'), info_c)
@@ -237,8 +237,8 @@ class TestFuncs(unittest.TestCase):
         info_c = get_info(app, env, 'a', 'c')
         # Check that you got proper info
         self.assertEqual(info_c['status'], 200)
-        self.assertEqual(info_c['bytes'], 6666)
-        self.assertEqual(info_c['object_count'], 1000)
+        self.assertEqual(info_c['bytes'], '6666')
+        self.assertEqual(info_c['object_count'], '1000')
         # Make sure the env cache is set
         self.assertEqual(env.get('swift.account/a'), info_a)
         self.assertEqual(env.get('swift.container/a/c'), info_c)
@@ -252,8 +252,8 @@ class TestFuncs(unittest.TestCase):
         info_c = get_info(app, env, 'a', 'c')
         # Check that you got proper info
         self.assertEqual(info_a['status'], 200)
-        self.assertEqual(info_c['bytes'], 6666)
-        self.assertEqual(info_c['object_count'], 1000)
+        self.assertEqual(info_c['bytes'], '6666')
+        self.assertEqual(info_c['object_count'], '1000')
         # Make sure the env cache is set and account still not cached
         self.assertEqual(env.get('swift.container/a/c'), info_c)
         # no additional calls were made
@@ -320,8 +320,8 @@ class TestFuncs(unittest.TestCase):
                             environ={'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, FakeApp())
         self.assertEqual(resp['storage_policy'], '0')
-        self.assertEqual(resp['bytes'], 6666)
-        self.assertEqual(resp['object_count'], 1000)
+        self.assertEqual(resp['bytes'], '6666')
+        self.assertEqual(resp['object_count'], '1000')
 
     def test_get_container_info_no_account(self):
         responses = DynamicResponseFactory(404, 200)
@@ -336,8 +336,8 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank("/v1/.system_account/cont")
         info = get_container_info(req.environ, app)
         self.assertEqual(info['status'], 200)
-        self.assertEqual(info['bytes'], 6666)
-        self.assertEqual(info['object_count'], 1000)
+        self.assertEqual(info['bytes'], '6666')
+        self.assertEqual(info['object_count'], '1000')
 
     def test_get_container_info_cache(self):
         cache_stub = {
@@ -373,8 +373,8 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank("/v1/AUTH_account",
                             environ={'swift.cache': FakeCache({})})
         resp = get_account_info(req.environ, app)
-        self.assertEqual(resp['bytes'], 6666)
-        self.assertEqual(resp['total_object_count'], 1000)
+        self.assertEqual(resp['bytes'], '6666')
+        self.assertEqual(resp['total_object_count'], '1000')
 
     def test_get_account_info_cache(self):
         # The original test that we prefer to preserve
@@ -433,7 +433,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(app.responses.stats['account'], 0)
         self.assertEqual(app.responses.stats['container'], 0)
         self.assertEqual(app.responses.stats['obj'], 1)
-        self.assertEqual(resp['length'], 5555)
+        self.assertEqual(resp['length'], '5555')
         self.assertEqual(resp['type'], 'text/plain')
 
     def test_options(self):
@@ -476,10 +476,11 @@ class TestFuncs(unittest.TestCase):
     def test_headers_to_container_info_meta(self):
         headers = {'X-Container-Meta-Whatevs': 14,
                    'x-container-meta-somethingelse': 0}
+        #import pdb; pdb.set_trace()
         resp = headers_to_container_info(headers.items(), 200)
         self.assertEqual(len(resp['meta']), 2)
-        self.assertEqual(resp['meta']['whatevs'], 14)
-        self.assertEqual(resp['meta']['somethingelse'], 0)
+        self.assertEqual(resp['meta']['whatevs'], '14')
+        self.assertEqual(resp['meta']['somethingelse'], '0')
 
     def test_headers_to_container_info_sys_meta(self):
         prefix = get_sys_meta_prefix('container')
@@ -487,8 +488,8 @@ class TestFuncs(unittest.TestCase):
                    '%ssomethingelse' % prefix: 0}
         resp = headers_to_container_info(headers.items(), 200)
         self.assertEqual(len(resp['sysmeta']), 2)
-        self.assertEqual(resp['sysmeta']['whatevs'], 14)
-        self.assertEqual(resp['sysmeta']['somethingelse'], 0)
+        self.assertEqual(resp['sysmeta']['whatevs'], '14')
+        self.assertEqual(resp['sysmeta']['somethingelse'], '0')
 
     def test_headers_to_container_info_values(self):
         headers = {
@@ -516,10 +517,11 @@ class TestFuncs(unittest.TestCase):
     def test_headers_to_account_info_meta(self):
         headers = {'X-Account-Meta-Whatevs': 14,
                    'x-account-meta-somethingelse': 0}
+        #import pdb; pdb.set_trace()
         resp = headers_to_account_info(headers.items(), 200)
         self.assertEqual(len(resp['meta']), 2)
-        self.assertEqual(resp['meta']['whatevs'], 14)
-        self.assertEqual(resp['meta']['somethingelse'], 0)
+        self.assertEqual(resp['meta']['whatevs'], '14')
+        self.assertEqual(resp['meta']['somethingelse'], '0')
 
     def test_headers_to_account_info_sys_meta(self):
         prefix = get_sys_meta_prefix('account')
@@ -527,8 +529,8 @@ class TestFuncs(unittest.TestCase):
                    '%ssomethingelse' % prefix: 0}
         resp = headers_to_account_info(headers.items(), 200)
         self.assertEqual(len(resp['sysmeta']), 2)
-        self.assertEqual(resp['sysmeta']['whatevs'], 14)
-        self.assertEqual(resp['sysmeta']['somethingelse'], 0)
+        self.assertEqual(resp['sysmeta']['whatevs'], '14')
+        self.assertEqual(resp['sysmeta']['somethingelse'], '0')
 
     def test_headers_to_account_info_values(self):
         headers = {
@@ -555,8 +557,8 @@ class TestFuncs(unittest.TestCase):
                    'x-object-meta-somethingelse': 0}
         resp = headers_to_object_info(headers.items(), 200)
         self.assertEqual(len(resp['meta']), 2)
-        self.assertEqual(resp['meta']['whatevs'], 14)
-        self.assertEqual(resp['meta']['somethingelse'], 0)
+        self.assertEqual(resp['meta']['whatevs'], '14')
+        self.assertEqual(resp['meta']['somethingelse'], '0')
 
     def test_headers_to_object_info_sys_meta(self):
         prefix = get_sys_meta_prefix('object')
@@ -564,8 +566,8 @@ class TestFuncs(unittest.TestCase):
                    '%ssomethingelse' % prefix: 0}
         resp = headers_to_object_info(headers.items(), 200)
         self.assertEqual(len(resp['sysmeta']), 2)
-        self.assertEqual(resp['sysmeta']['whatevs'], 14)
-        self.assertEqual(resp['sysmeta']['somethingelse'], 0)
+        self.assertEqual(resp['sysmeta']['whatevs'], '14')
+        self.assertEqual(resp['sysmeta']['somethingelse'], '0')
 
     def test_headers_to_object_info_values(self):
         headers = {

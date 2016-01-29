@@ -122,15 +122,18 @@ def _prep_headers_to_info(headers, server_type):
     meta = {}
     sysmeta = {}
     other = {}
+    #import pdb; pdb.set_trace() 
+    #headers = HeaderKeyDict(headers)
     for key, val in dict(headers).items():
-        lkey = key.lower()
-        if is_user_meta(server_type, lkey):
-            meta[strip_user_meta_prefix(server_type, lkey)] = val
-        elif is_sys_meta(server_type, lkey):
-            sysmeta[strip_sys_meta_prefix(server_type, lkey)] = val
+        #lkey = key #.lower()
+        if is_user_meta(server_type, key):
+            meta[strip_user_meta_prefix(server_type, key)] = val
+        elif is_sys_meta(server_type, key):
+            sysmeta[strip_sys_meta_prefix(server_type, key)] = val
         else:
-            other[lkey] = val
-    return other, meta, sysmeta
+            other[key] = val
+    #import pdb; pdb.set_trace() 
+    return HeaderKeyDict(other), HeaderKeyDict(meta), HeaderKeyDict(sysmeta)
 
 
 def headers_to_account_info(headers, status_int=HTTP_OK):
