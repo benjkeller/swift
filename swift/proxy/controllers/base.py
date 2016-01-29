@@ -122,17 +122,14 @@ def _prep_headers_to_info(headers, server_type):
     meta = {}
     sysmeta = {}
     other = {}
-    #import pdb; pdb.set_trace() 
-    #headers = HeaderKeyDict(headers)
     for key, val in dict(headers).items():
-        #lkey = key #.lower()
         if is_user_meta(server_type, key):
             meta[strip_user_meta_prefix(server_type, key)] = val
         elif is_sys_meta(server_type, key):
             sysmeta[strip_sys_meta_prefix(server_type, key)] = val
         else:
             other[key] = val
-    #import pdb; pdb.set_trace() 
+    #this will return all headers meta, and sysmeta as strings
     return HeaderKeyDict(other), HeaderKeyDict(meta), HeaderKeyDict(sysmeta)
 
 
